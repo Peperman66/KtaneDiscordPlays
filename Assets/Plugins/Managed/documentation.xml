@@ -1027,15 +1027,10 @@
             <param name="text">The Message's new text.</param>
             <returns>Returns a duplicate <see cref="T:IRCMessage">Message</see> object with the new Text.</returns>
         </member>
-        <member name="T:IRCConnection.NetworkStreamLineReader">
+        <member name="M:IRCConnection.ConnectToIRC">
             <summary>
-            A <see cref="T:System.IO.TextReader"/> that reads lines from a <see cref="T:System.Net.Sockets.NetworkStream"/> and will check to see if any data is available to avoid blocking.
-            Allows you specify a seperate stream to read from if you have another stream (like a <see cref="T:System.Net.Security.SslStream"/>) wrapping your <see cref="T:System.Net.Sockets.NetworkStream"/>.
-            </summary>
-        </member>
-        <member name="M:IRCConnection.NetworkStreamLineReader.ReadLine">
-            <summary>
-            Attempts to read a line from the <see cref="T:System.IO.Stream"/>. Returns null if a line isn't available.
+            A <see cref="T:System.IO.TextReader"/> that reads lines from a <see cref="!:NetworkStream"/> and will check to see if any data is available to avoid blocking.
+            Allows you specify a seperate stream to read from if you have another stream (like a <see cref="T:System.Net.Security.SslStream"/>) wrapping your <see cref="!:NetworkStream"/>.
             </summary>
         </member>
         <member name="T:LeaderboardController">

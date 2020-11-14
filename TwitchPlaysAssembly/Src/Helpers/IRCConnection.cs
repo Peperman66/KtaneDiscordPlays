@@ -4,17 +4,24 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net.Security;
-using System.Net.Sockets;
+using System.Net;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using JetBrains.Annotations;
 using Newtonsoft.Json;
+using WebSocket4Net;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
+using Newtonsoft.Json.Linq;
+using System.Net.Mime;
+using System.Xml.Schema;
+using SuperSocket.ClientEngine;
+using UnityEngine.Networking;
+using System.Security.Authentication;
+using System.Net.Security;
 
 public class IRCMessage
 {
@@ -293,7 +300,6 @@ public class IRCConnection : MonoBehaviour
 		}
 
 		if (Instance == null) return;
-
 		if (!Instance.UserNickName.StartsWith("_") && !force) return;
 		Instance.UserNickName = TwitchPlaySettings.data.TwitchPlaysDebugUsername;
 		Instance.ChannelName = TwitchPlaySettings.data.TwitchPlaysDebugUsername;
@@ -396,7 +402,7 @@ public class IRCConnection : MonoBehaviour
 
 	private static bool IsUsernameValid(string username) => !string.IsNullOrEmpty(username) && Regex.IsMatch(username, "^(#)?[a-z0-9][a-z0-9_]{2,24}$");
 
-	private static bool IsAuthTokenValid(string authtoken) => !string.IsNullOrEmpty(authtoken) && Regex.IsMatch(authtoken, "^oauth:[a-z0-9]{30}$");
+	private static bool IsAuthTokenValid(string authtoken) => !string.IsNullOrEmpty(authtoken) && Regex.IsMatch(authtoken, "^[MN][A-Za-z\\d]{23}\\.[\\w-]{6}\\.[\\w-]{27}$");
 
 	public static void Connect()
 	{
@@ -434,29 +440,17 @@ public class IRCConnection : MonoBehaviour
 			}
 
 			Instance.UserNickName = Instance._settings.userName.Replace("#", "");
-			Instance.ChannelName = Instance._settings.channelName.Replace("#", "");
-			Instance.CurrentColor = new IRCCommand($".color {TwitchPlaySettings.data.TwitchBotColorOnQuit}").GetColor();
+			//Instance.ChannelName = Instance._settings.channelName.Replace("#", "");
+			//Instance.CurrentColor = new IRCCommand($".color {TwitchPlaySettings.data.TwitchBotColorOnQuit}").GetColor();
 
-			settings.authToken = Instance._settings.authToken.ToLowerInvariant();
-			settings.channelName = Instance.ChannelName.ToLowerInvariant();
-			settings.userName = Instance.UserNickName.ToLowerInvariant();
-			settings.serverName = Instance._settings.serverName.ToLowerInvariant();
+			settings.authToken = Instance._settings.authToken;
+			settings.channelId = Instance._settings.channelId;
 
-			if (!IsAuthTokenValid(settings.authToken) || !IsUsernameValid(settings.channelName) || !IsUsernameValid(settings.userName) || string.IsNullOrEmpty(settings.serverName) || settings.serverPort < 1 || settings.serverPort > 65535)
+			if (!IsAuthTokenValid(settings.authToken))
 			{
 				SetDebugUsername(true);
 				AddTextToHoldable("[IRC:Connect] Your settings file is not configured correctly.\nThe following items need to be configured:\n");
-				if (!IsAuthTokenValid(settings.authToken))
-					AddTextToHoldable(
-						"AuthToken - Be sure oauth: is included.\n-   Retrieve from https://twitchapps.com/tmi/");
-				if (!IsUsernameValid(settings.userName))
-					AddTextToHoldable("userName");
-				if (!IsUsernameValid(settings.channelName))
-					AddTextToHoldable("channelName");
-				if (string.IsNullOrEmpty(settings.serverName))
-					AddTextToHoldable("serverName - Most likely to be irc.twitch.tv");
-				if (settings.serverPort < 1 || settings.serverPort > 65535)
-					AddTextToHoldable("serverPort - Most likely to be 6697");
+				AddTextToHoldable("AuthToken - Be sure oauth: is included.\n-   Retrieve from https://twitchapps.com/tmi/");
 				AddTextToHoldable("\nOpen up the Mod manager holdable, and select \"open mod settings folder\".");
 				return;
 			}
@@ -476,188 +470,63 @@ public class IRCConnection : MonoBehaviour
 	/// A <see cref="TextReader"/> that reads lines from a <see cref="NetworkStream"/> and will check to see if any data is available to avoid blocking.
 	/// Allows you specify a seperate stream to read from if you have another stream (like a <see cref="SslStream"/>) wrapping your <see cref="NetworkStream"/>.
 	/// </summary>
-	class NetworkStreamLineReader : TextReader, IDisposable
-	{
-		readonly Stream stream;
-		readonly NetworkStream networkStream;
-		readonly Decoder decoder = Encoding.UTF8.GetDecoder();
-		readonly byte[] inputBuffer = new byte[512];
-		readonly char[] characterBuffer = new char[Encoding.UTF8.GetMaxCharCount(512)];
-		int characterPosition;
-		int charactersDecoded;
-		readonly StringBuilder stringBuilder = new StringBuilder(512);
-
-		public NetworkStreamLineReader(NetworkStream networkStream, Stream stream = null)
-		{
-			this.stream = stream ?? networkStream;
-			this.networkStream = networkStream;
-		}
-
-		/// <summary>
-		/// Attempts to read a line from the <see cref="Stream"/>. Returns null if a line isn't available.
-		/// </summary>
-		public override string ReadLine()
-		{
-			while (characterPosition < charactersDecoded || networkStream?.DataAvailable == true)
-			{
-				if (characterPosition >= charactersDecoded)
-				{
-					characterPosition = 0;
-					charactersDecoded = 0;
-					while (charactersDecoded == 0)
-					{
-						int bytesRead = stream.Read(inputBuffer, 0, inputBuffer.Length);
-						if (bytesRead == 0) return null;
-
-						charactersDecoded += decoder.GetChars(inputBuffer, 0, bytesRead, characterBuffer, 0);
-					}
-				}
-
-				char character = characterBuffer[characterPosition++];
-				switch (character)
-				{
-					case '\r':
-						continue;
-					case '\n':
-						string result = stringBuilder.ToString();
-						stringBuilder.Length = 0;
-						return result;
-					default:
-						stringBuilder.Append(character);
-						break;
-				}
-			}
-
-			return null;
-		}
-
-		new public void Dispose()
-		{
-			networkStream.Close();
-		}
-	}
 
 	private void ConnectToIRC()
 	{
 		_state = IRCConnectionState.Connecting;
 		try
 		{
-			AddTextToHoldable("[IRC:Connect] Starting connection to chat IRC {0}:{1}...", _settings.serverName, _settings.serverPort);
+			AddTextToHoldable("[IRC:Connect] Starting connection to Discord");
 
-			TcpClient sock = new TcpClient();
-			sock.Connect(_settings.serverName, _settings.serverPort);
-			if (!sock.Connected)
+			UnityWebRequest webRequest = new UnityWebRequest();
+			webRequest.url = "https://discord.com/api/gateway/bot";
+			webRequest.SetRequestHeader("Authorization", $"Bot {_settings.authToken}");
+			webRequest.downloadHandler = new DownloadHandlerBuffer();
+			webRequest.SendWebRequest();
+			while (!webRequest.isDone) { Thread.Sleep(25); }
+			string outputJson = webRequest.downloadHandler.text;
+			UnityEngine.Debug.Log(outputJson);
+			string webSocketUrl = JObject.Parse(outputJson).Value<string>("url");
+			UnityEngine.Debug.Log(webSocketUrl);
+			ServicePointManager.ServerCertificateValidationCallback = (object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors errors) => true;
+			_webSocket = new WebSocket(webSocketUrl + "?v=8&encoding=json");
+			_webSocket.Opened += OpenThreadMethod;
+			_webSocket.MessageReceived += InputThreadMethod;
+			_webSocket.Closed += CloseThreadMethod;
+			_webSocket.Error += ErrorThreadMethod;
+			_webSocket.Open();
+			Thread.Sleep(25);
+
+			/*if (_webSocket.State != WebSocketState.Open)
 			{
 				SetDebugUsername(true);
-				AddTextToHoldable("[IRC:Connect] Failed to connect to chat IRC {0}:{1}.", _settings.serverName, _settings.serverPort);
+				AddTextToHoldable("[IRC:Connect] Failed to connect to Discord.");
 				return;
-			}
+			}*/
 
 			AddTextToHoldable("[IRC:Connect] Connection to chat IRC successful.");
 
-			NetworkStream networkStream = sock.GetStream();
-			try
+			if (_state == IRCConnectionState.DoNotRetry)
 			{
-				AddTextToHoldable("[IRC:Connect] Attempting to set up SSL connection.");
-				SslStream sslStream = new SslStream(networkStream, true, VerifyServerCertificate);
-				sslStream.AuthenticateAsClient(_settings.serverName);
-
-				DebugHelper.Log($"SSL encrypted: {sslStream.IsEncrypted}, authenticated: {sslStream.IsAuthenticated}, signed: {sslStream.IsSigned} and mutually authenticated: {sslStream.IsMutuallyAuthenticated}.");
-
-				NetworkStreamLineReader inputStream = new NetworkStreamLineReader(networkStream, sslStream);
-				StreamWriter outputStream = new StreamWriter(sslStream);
-
-				if (_state == IRCConnectionState.DoNotRetry)
-				{
-					SetDebugUsername(true);
-					sslStream.Close();
-					networkStream.Close();
-					sock.Close();
-					return;
-				}
-
-				NetworkStream stream = networkStream;
-				_inputThread = new Thread(() => InputThreadMethod(inputStream));
-				_inputThread.Start();
-
-				_outputThread = new Thread(() => OutputThreadMethod(outputStream));
-				_outputThread.Start();
-
-				AddTextToHoldable("[IRC:Connect] SSL setup completed with no errors.");
-			}
-			catch (Exception ex)
-			{
-				AddTextToHoldable("[IRC:Connect] SSL connection failed, defaulting to insecure connection.");
-				if (_settings.serverPort == 6667)
-					AddTextToHoldable("[IRC:Connect] The configured port does not use SSL, please change it to 6697 if you wish to use SSL.");
-				DebugHelper.LogException(ex, "An Exception has occurred when attempting to connect using SSL, using insecure stream instead:");
-				_settings.serverPort = 6667;
-				sock = new TcpClient(_settings.serverName, _settings.serverPort);
-				networkStream = sock.GetStream();
-				NetworkStreamLineReader inputStream = new NetworkStreamLineReader(networkStream);
-				StreamWriter outputStream = new StreamWriter(networkStream);
-
-				if (_state == IRCConnectionState.DoNotRetry)
-				{
-					SetDebugUsername(true);
-					networkStream.Close();
-					sock.Close();
-					return;
-				}
-
-				_inputThread = new Thread(() => InputThreadMethod(inputStream));
-				_inputThread.Start();
-
-				_outputThread = new Thread(() => OutputThreadMethod(outputStream));
-				_outputThread.Start();
+				SetDebugUsername(true);
+				_webSocket.Close();
+				return;
 			}
 
-			SendCommand(
-				$"PASS {_settings.authToken}{Environment.NewLine}NICK {_settings.userName}{Environment.NewLine}CAP REQ :twitch.tv/tags{Environment.NewLine}CAP REQ :twitch.tv/commands{Environment.NewLine}CAP REQ :twitch.tv/membership");
-			AddTextToHoldable("PASS oauth:*****REDACTED******\nNICK {0}\nCAP REQ :twitch.tv/tags\nCAP REQ :twitch.tv/commands\nCAP REQ :twitch.tv/membership", _settings.userName);
+			_outputThread = new Thread(() => OutputThreadMethod());
+			_outputThread.Start();
+
+
+
+
 			while (_state == IRCConnectionState.Connecting)
 				Thread.Sleep(25);
-		}
-		catch (SocketException ex)
-		{
-			AddTextToHoldable($"[IRC:Connect] Failed to connect to chat IRC {_settings.serverName}:{_settings.serverPort}. Due to the following Socket Exception: {ex.SocketErrorCode} - {ex.Message}");
-			// ReSharper disable once SwitchStatementMissingSomeCases
-			switch (ex.SocketErrorCode)
-			{
-				case SocketError.ConnectionRefused:
-				case SocketError.AccessDenied:
-					_state = IRCConnectionState.DoNotRetry;
-					break;
-				default:
-					if (_state != IRCConnectionState.DoNotRetry)
-						_state = IRCConnectionState.Disconnected;
-					break;
-			}
 		}
 		catch (Exception ex)
 		{
 			_state = IRCConnectionState.DoNotRetry;
-			AddTextToHoldable(ex, $"[IRC:Connect] Failed to connect to chat IRC {_settings.serverName}:{_settings.serverPort}. Due to the following Exception:");
+			AddTextToHoldable(ex, $"[IRC:Connect] Failed to connect to Discord due to the following Exception:");
 		}
-	}
-
-	private bool VerifyServerCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors errors)
-	{
-		X509Certificate2 cert2 = new X509Certificate2(certificate);
-		if (cert2.Subject.Contains(_settings.serverName.Substring(4)) && DateTime.UtcNow <= cert2.NotAfter && DateTime.UtcNow >= cert2.NotBefore)
-		{
-			DebugHelper.Log("SSL certificate valid.");
-			return true;
-		}
-
-		if (!cert2.Subject.Contains(_settings.serverName.Substring(4)))
-			DebugHelper.Log("SSL certificate not issued to the server we are connected to.");
-		else if (DateTime.UtcNow > cert2.NotAfter)
-			DebugHelper.Log("SSL certificate expired.");
-		else if (DateTime.UtcNow < cert2.NotBefore)
-			DebugHelper.Log("SSL certificate issued for the future.");
-
-		return false;
 	}
 
 	public static void Disconnect()
@@ -707,9 +576,10 @@ public class IRCConnection : MonoBehaviour
 		foreach (string line in message.Wrap(MaxMessageLength).Split(new[] { "\n" }, StringSplitOptions.RemoveEmptyEntries))
 		{
 			if (!Instance._silenceMode && Instance._state != IRCConnectionState.Disconnected)
-				Instance.SendCommand(sendToChat
+				/*Instance.SendCommand(sendToChat
 					? $"PRIVMSG #{Instance._settings.channelName} :{line}"
-					: $"PRIVMSG #{Instance._settings.channelName} :.w {userNickName} {line}");
+					: $"PRIVMSG #{Instance._settings.channelName} :.w {userNickName} {line}");*/
+				Instance.SendCommand(line);
 
 			var ircMessage = new IRCMessage(Instance.UserNickName, Instance.CurrentColor, line, !sendToChat, true);
 			TwitchPlaysService.Instance.AddMessage(ircMessage);
@@ -724,6 +594,8 @@ public class IRCConnection : MonoBehaviour
 
 	public static void ToggleSilenceMode()
 	{
+		return;
+		/*
 		if (Instance == null) return;
 		if (!Instance._silenceMode)
 		{
@@ -738,6 +610,7 @@ public class IRCConnection : MonoBehaviour
 		lock (Instance._receiveQueue)
 			Instance._receiveQueue.Enqueue(new IRCMessage(Instance.UserNickName, Instance.CurrentColor,
 				"Silence mode off.", false, true));
+		*/
 	}
 
 	public static Color GetUserColor(string userNickName)
@@ -751,9 +624,10 @@ public class IRCConnection : MonoBehaviour
 	#region Private Methods
 	private void SetOwnColor()
 	{
-		if (!ColorUtility.TryParseHtmlString(CurrentColor, out Color color)) return;
+		/*if (!ColorUtility.TryParseHtmlString(CurrentColor, out Color color)) return;
 		lock (_userColors)
 			_userColors[_settings.userName] = color;
+		*/
 	}
 
 	private void SendCommand(string command)
@@ -812,7 +686,75 @@ public class IRCConnection : MonoBehaviour
 	}
 
 	private int ConnectionTimeout => _state == IRCConnectionState.Connected ? 360000 : 30000;
-	private void InputThreadMethod(NetworkStreamLineReader input)
+	private void OpenThreadMethod(object sender, EventArgs args)
+	{
+		JObject identifyObject = new JObject()
+		{
+			{"op", 2 },
+			{"d", new JObject() {
+				{"token", _settings.authToken },
+				{"intents", 512 },
+				{"properties", new JObject()
+				{
+					{"$os", "Windows" },
+					{"$browser", "custom" },
+					{"$library", "Keep Talking and Nobody Explodes" }
+				} }
+			} }
+		};
+		_webSocket.Send(JsonConvert.SerializeObject(identifyObject));
+	}
+	private void InputThreadMethod(object sender, MessageReceivedEventArgs message)
+	{
+		JObject messageObject = JObject.Parse(message.Message);
+		switch (messageObject.Value<int>("op"))
+		{
+			case 0:
+				switch (messageObject.Value<string>("t"))
+				{
+					case "READY":
+						_state = IRCConnectionState.Connected;
+						UserAccess.AddUser("Peperman66", AccessLevel.Streamer | AccessLevel.SuperUser | AccessLevel.Admin | AccessLevel.Mod);
+						break;
+					case "MESSAGE_CREATE":
+						JObject data = messageObject.Value<JObject>("d");
+						if (data.Value<string>("channel_id") == _settings.channelId && data.Value<JObject>("author").Value<bool>("bot") == false)
+						{
+							string nickName = data.Value<JObject>("author").Value<string>("username");
+							string content = data.Value<string>("content");
+							ReceiveMessage(nickName, null, content);
+						}
+						break;
+				}
+				break;
+			case 10:
+				int heartbeatInterval = messageObject.Value<JObject>("d").Value<int>("heartbeat_interval");
+				new Thread(() =>
+				{
+					while (_state == IRCConnectionState.Connected || _state == IRCConnectionState.Connecting)
+					{
+						Thread.Sleep(heartbeatInterval);
+						JObject heartbeatObject = new JObject()
+						{
+							{"op", 1 },
+							{"d", _lastSequenceNumber }
+						};
+						_webSocket.Send(JsonConvert.SerializeObject(heartbeatObject));
+					}
+				}).Start();
+				break;
+			case 11:
+				break;
+			default:
+				AddTextToHoldable(messageObject.Value<string>("op"), messageObject.Value<JObject>("d").ToString());
+				break;
+		}
+		if (messageObject.Value<int?>("s") != null)
+		{
+			_lastSequenceNumber = messageObject.Value<int>("s");
+		}
+	}
+	/*private void InputThreadMethod(NetworkStreamLineReader input)
 	{
 		bool pingTimeoutTest = false; // Keeps track of if we are currently in a ping timeout test.
 		Stopwatch stopwatch = new Stopwatch();
@@ -887,13 +829,12 @@ public class IRCConnection : MonoBehaviour
 			AddTextToHoldable("[IRC:Disconnect] Connection failed.");
 			_state = IRCConnectionState.Disconnected;
 		}
-	}
+	}*/
 
-	private void OutputThreadMethod(TextWriter output)
+	private void OutputThreadMethod()
 	{
 		Stopwatch stopWatch = new Stopwatch();
 		stopWatch.Start();
-		_messageDelay = 0;
 
 		while (ThreadAlive)
 		{
@@ -912,18 +853,21 @@ public class IRCConnection : MonoBehaviour
 					CurrentColor.Equals(command.GetColor(), StringComparison.InvariantCultureIgnoreCase))
 					continue;
 
-				output.WriteLine(command.Command);
-				output.Flush();
+				JObject messageObject = new JObject()
+				{
+					{ "content", command.Command }
+				};
 
-				stopWatch.Reset();
-				stopWatch.Start();
-
-				_messageDelay = _isModerator ? MessageDelayMod : MessageDelayUser;
-				_messageDelay += (command.CommandIsColor() && _isModerator) ? 700 : 0;
+				UnityWebRequest webRequest = new UnityWebRequest($"https://discord.com/api/channels/{_settings.channelId}/messages", "POST");
+				webRequest.SetRequestHeader("Authorization", $"Bot {_settings.authToken}");
+				webRequest.SetRequestHeader("Content-Type", "application/json");
+				webRequest.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(messageObject)));
+				webRequest.downloadHandler = new DownloadHandlerBuffer();
+				webRequest.SendWebRequest();
 			}
-			catch
+			catch (Exception e)
 			{
-				AddTextToHoldable("[IRC:Disconnect] Connection failed.");
+				AddTextToHoldable(e, "[IRC:Disconnect] Connection failed, due to the following exception:");
 				_state = IRCConnectionState.Disconnected;
 			}
 		}
@@ -933,7 +877,8 @@ public class IRCConnection : MonoBehaviour
 		{
 			if (_state == IRCConnectionState.Disconnecting)
 			{
-				IRCCommand setColor = new IRCCommand($"PRIVMSG #{_settings.channelName} :.color {ColorOnDisconnect}");
+				_webSocket.Close();
+				/*IRCCommand setColor = new IRCCommand($"PRIVMSG #{_settings.channelName} :.color {ColorOnDisconnect}");
 				if (setColor.CommandIsColor())
 				{
 					AddTextToHoldable("[IRC:Disconnect] Color {0} was requested, setting it now.", ColorOnDisconnect);
@@ -946,7 +891,7 @@ public class IRCConnection : MonoBehaviour
 					stopWatch.Start();
 					while (stopWatch.ElapsedMilliseconds < 1200)
 						Thread.Sleep(25);
-				}
+				}*/
 				_state = IRCConnectionState.Disconnected;
 				AddTextToHoldable("[IRC:Disconnect] Disconnected from chat IRC.");
 			}
@@ -964,8 +909,16 @@ public class IRCConnection : MonoBehaviour
 				AddTextToHoldable("[IRC:Disconnect] Twitch Plays disabled.");
 		});
 	}
+	private void CloseThreadMethod(object sender, EventArgs args)
+	{
+		_state = IRCConnectionState.Disconnected;
+	}
+	private void ErrorThreadMethod(object sender, SuperSocket.ClientEngine.ErrorEventArgs args)
+	{
+		AddTextToHoldable(args.Exception, "Connection dropped due to following exception:");
+	}
 
-	private void SetDelay(string badges, string nickname, string channel) //TODO account for known/verified bot status
+	/*private void SetDelay(string badges, string nickname, string channel) //TODO account for known/verified bot status
 	{
 		if (!channel.Equals(_settings.channelName, StringComparison.InvariantCultureIgnoreCase) ||
 			!nickname.Equals(_settings.userName, StringComparison.InvariantCultureIgnoreCase)) return;
@@ -981,7 +934,7 @@ public class IRCConnection : MonoBehaviour
 									badge.StartsWith("staff/"))) return;
 		_messageDelay = MessageDelayMod;
 		_isModerator = true;
-	}
+	}*/
 
 	protected static void InternalMessageReceived(string userNickName, string userColorCode, string text)
 	{
@@ -1013,7 +966,7 @@ public class IRCConnection : MonoBehaviour
 	#endregion
 
 	#region Static Fields/Consts
-	private static readonly ActionMap[] Actions =
+	/*private static readonly ActionMap[] Actions =
 	{
 		new ActionMap(@"color=(#[0-9A-F]{6})?;display-name=([^;]+)?;.+user-id=(\d+).+:(\S+)!\S+ PRIVMSG #\S+ :(.+)", (GroupCollection groups) =>
 		{
@@ -1068,7 +1021,7 @@ public class IRCConnection : MonoBehaviour
 		}, false),
 
 		new ActionMap(@".+", (GroupCollection groups) => AddTextToHoldable(groups[0].Value), false) //Log otherwise uncaptured lines.
-	};
+	};*/
 	public static bool CommandsEnabled = true;
 	#endregion
 
@@ -1093,6 +1046,8 @@ public class IRCConnection : MonoBehaviour
 
 	private Thread _inputThread;
 	private Thread _outputThread;
+	private WebSocket _webSocket;
+	private int? _lastSequenceNumber;
 	private bool _isModerator;
 	private int _messageDelay = 2000;
 	private bool _silenceMode;

@@ -18,10 +18,8 @@ public class TwitchPlaysService : MonoBehaviour
 	{
 		// ReSharper disable InconsistentNaming
 		public string authToken = "";
+		public string channelId = "";
 		public string userName = "";
-		public string channelName = "";
-		public string serverName = "irc.twitch.tv";
-		public int serverPort = 6697;
 		// ReSharper restore InconsistentNaming
 	}
 
