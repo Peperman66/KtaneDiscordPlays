@@ -10,7 +10,7 @@ public class StreetFighterComponentSolver : ComponentSolver
 		: base(module)
 	{
 		_component = module.BombComponent.GetComponent(_componentType);
-		selectables = (KMSelectable[])fighterButtonsField.GetValue(_component);
+		selectables = (KMSelectable[]) fighterButtonsField.GetValue(_component);
 		ModInfo = ComponentSolverFactory.GetModuleInfo(GetModuleType(), "!{0} select Chun Li, M. Bison [selects Chun Li as player 1, and M. Bison as player 2]");
 	}
 
@@ -40,6 +40,30 @@ public class StreetFighterComponentSolver : ComponentSolver
 			yield return DoInteractionClick(selectables[i]);
 			yield return new WaitForSeconds(0.6f);
 		}
+	}
+
+	protected override IEnumerator ForcedSolveIEnumerator()
+	{
+		yield return null;
+		if (!_component.GetValue<bool>("player1Selected"))
+		{
+			List<int> indices = new List<int>();
+			string must = _component.GetValue<string>("mustContain");
+			for (int i = 0; i < names.Length; i++)
+			{
+				if (names[i].Contains(must))
+					indices.Add(i);
+			}
+			int rand = UnityEngine.Random.Range(0, indices.Count);
+			DoInteractionHighlight(selectables[indices[rand]]);
+			yield return new WaitForSeconds(0.1f);
+			yield return DoInteractionClick(selectables[indices[rand]]);
+			yield return new WaitForSeconds(0.6f);
+		}
+		string correct = _component.GetValue<string>("correctOpponent");
+		DoInteractionHighlight(selectables[Array.IndexOf(names, correct)]);
+		yield return new WaitForSeconds(0.1f);
+		yield return DoInteractionClick(selectables[Array.IndexOf(names, correct)]);
 	}
 
 	private static readonly Type _componentType = ReflectionHelper.FindType("streetFighterScript");

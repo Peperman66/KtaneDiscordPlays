@@ -118,7 +118,7 @@ public class TwitchBomb : MonoBehaviour
 		set => Bomb.GetTimer().TimeRemaining = (value < 0) ? 0 : value;
 	}
 
-	public void CauseVersusExplosion() =>  StartCoroutine(DelayBombExplosionCoroutine(null, "Evil defeated Good", 0.1f));
+	public void CauseVersusExplosion() => StartCoroutine(DelayBombExplosionCoroutine(null, "Evil defeated Good", 0.1f));
 
 	#region Private Methods
 	public IEnumerator DelayBombExplosionCoroutine() => DelayBombExplosionCoroutine(TwitchPlaySettings.data.BombDetonateCommand, "Detonate Command", 1.0f);
@@ -313,17 +313,47 @@ public class TwitchBomb : MonoBehaviour
 			yield return new WaitForSeconds(1f);
 		}
 
-		IEnumerator returnToFace = edge switch
+		IEnumerator returnToFace;
+		switch (edge)
 		{
-			"right" or "r" => DoFreeYRotate(90.0f, 90.0f, 0.0f, 0.0f, 0.3f),
-			"right bottom" or "bottom right" or "br" or "rb" => DoFreeYRotate(45.0f, 90.0f, 0.0f, 0.0f, 0.3f),
-			"bottom" or "b" => DoFreeYRotate(0.0f, 90.0f, 0.0f, 0.0f, 0.3f),
-			"left bottom" or "bottom left" or "lb" or "bl" => DoFreeYRotate(-45.0f, 90.0f, 0.0f, 0.0f, 0.3f),
-			"left" or "l" => DoFreeYRotate(-90.0f, 90.0f, 0.0f, 0.0f, 0.3f),
-			"left top" or "top left" or "lt" or "tl" => DoFreeYRotate(-135.0f, 90.0f, 0.0f, 0.0f, 0.3f),
-			"top" or "t" => DoFreeYRotate(-180.0f, 90.0f, 0.0f, 0.0f, 0.3f),
-			_ => DoFreeYRotate(-225.0f + offset, 90.0f, 0.0f, 0.0f, 0.3f),
-		};
+			case "right":
+			case "r":
+				returnToFace = DoFreeYRotate(90.0f, 90.0f, 0.0f, 0.0f, 0.3f);
+				break;
+			case "right bottom":
+			case "bottom right":
+			case "br":
+			case "rb":
+				returnToFace = DoFreeYRotate(45.0f, 90.0f, 0.0f, 0.0f, 0.3f);
+				break;
+			case "bottom":
+			case "b":
+				returnToFace = DoFreeYRotate(0.0f, 90.0f, 0.0f, 0.0f, 0.3f);
+				break;
+			case "left bottom":
+			case "bottom left":
+			case "lb":
+			case "bl":
+				returnToFace = DoFreeYRotate(-45.0f, 90.0f, 0.0f, 0.0f, 0.3f);
+				break;
+			case "left":
+			case "l":
+				returnToFace = DoFreeYRotate(-90.0f, 90.0f, 0.0f, 0.0f, 0.3f);
+				break;
+			case "left top":
+			case "top left":
+			case "lt":
+			case "tl":
+				returnToFace = DoFreeYRotate(-135.0f, 90.0f, 0.0f, 0.0f, 0.3f);
+				break;
+			case "top":
+			case "t":
+				returnToFace = DoFreeYRotate(-180.0f, 90.0f, 0.0f, 0.0f, 0.3f);
+				break;
+			default:
+				returnToFace = DoFreeYRotate(-225.0f + offset, 90.0f, 0.0f, 0.0f, 0.3f);
+				break;
+		}
 		while (returnToFace.MoveNext())
 		{
 			yield return returnToFace.Current;
@@ -337,7 +367,7 @@ public class TwitchBomb : MonoBehaviour
 	const string WidgetQueryDay = "day";
 	const string WidgetQueryRandomTime = "time";
 
-	public IEnumerable<Dictionary<string, T>> QueryWidgets<T>(string queryKey, string queryInfo = null) => Bomb.WidgetManager.GetWidgetQueryResponses(queryKey, queryInfo).Select(JsonConvert.DeserializeObject<Dictionary<string, T>>);
+	public IEnumerable<Dictionary<string, T>> QueryWidgets<T>(string queryKey, string queryInfo = null) => MysteryWidgetShim.FilterQuery(queryKey, Bomb.WidgetManager.GetWidgetQueryResponses(queryKey, queryInfo).Select(JsonConvert.DeserializeObject<Dictionary<string, T>>));
 
 	public string FillEdgework()
 	{
@@ -349,6 +379,14 @@ public class TwitchBomb : MonoBehaviour
 			{ "ComponentVideo", "Component" },
 			{ "CompositeVideo", "Composite" }
 		};
+
+		// Mystery Widget
+		MysteryWidgetShim.ClearUnused();
+
+		foreach (GameObject cover in MysteryWidgetShim.Covers.Where(x => x != null))
+		{
+			edgework.Add("Hidden");
+		}
 
 		Dictionary<string, string> ruleSeed = QueryWidgets<string>("RuleSeedModifier").FirstOrDefault();
 		if (ruleSeed?.ContainsKey("seed") ?? false)

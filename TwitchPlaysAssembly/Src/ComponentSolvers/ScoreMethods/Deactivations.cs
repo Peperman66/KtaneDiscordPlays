@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using static NeedyComponent;
 
@@ -11,6 +10,9 @@ namespace TwitchPlays.ScoreMethods
 
 		public Deactivations(float points, TwitchModule module) : base(points)
 		{
+			if (module == null)
+				return;
+
 			this.module = module;
 
 			module.StartCoroutine(TrackModule());
@@ -47,7 +49,7 @@ namespace TwitchPlays.ScoreMethods
 
 		public override float CalculateScore(string user)
 		{
-			if (!Scores.TryGetValue(user, out float score))
+			if (user == null || !Scores.TryGetValue(user, out float score))
 				score = 0;
 			else
 				Scores.Remove(user);

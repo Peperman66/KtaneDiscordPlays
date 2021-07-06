@@ -63,6 +63,50 @@ static class GlobalCommands
 		Leaderboard.Instance.AddStrike(targetPlayer, new Color(.31f, .31f, .31f), bonus);
 	}
 
+	[Command(@"srefund +(\S+) *?( +[0-9]+)?", AccessLevel.Admin, AccessLevel.Admin)]
+	public static void StrikeRefund([Group(1)] string targetPlayer, [Group(2)] int? _count, string user)
+	{
+		int count = _count ?? 1;
+		if (targetPlayer.StartsWith("@"))
+			targetPlayer = targetPlayer.Substring(1);
+
+		if (count < 1)
+		{
+			IRCConnection.SendMessageFormat("Sorry @{0}, cannot refund less than 1 strike!", user);
+			return;
+		}
+
+		int points = TwitchPlaySettings.data.StrikePenalty * count;
+		Leaderboard.Instance.AddStrike(targetPlayer, new Color(.31f, .31f, .31f), -1 * count);
+		Leaderboard.Instance.AddScore(targetPlayer, new Color(.31f, .31f, .31f), points);
+
+		IRCConnection.SendMessageFormat("Refunded {0} strike{1} and {2} score from {3}.", count, count != 1 ? "s" : "", points, targetPlayer);
+	}
+
+	[Command(@"stransfer +(\S+) +to +(\S+) *?( +[0-9]+)?", AccessLevel.Admin, AccessLevel.Admin)]
+	public static void StrikeTransfer([Group(1)] string fromPlayer, [Group(2)] string toPlayer, [Group(3)] int? _count, string user)
+	{
+		int count = _count ?? 1;
+		if (fromPlayer.StartsWith("@"))
+			fromPlayer = fromPlayer.Substring(1);
+		if (toPlayer.StartsWith("@"))
+			toPlayer = toPlayer.Substring(1);
+
+		if (count < 1)
+		{
+			IRCConnection.SendMessageFormat("Sorry @{0}, cannot transfer less than 1 strike!", user);
+			return;
+		}
+
+		int points = TwitchPlaySettings.data.StrikePenalty * count;
+		Leaderboard.Instance.AddStrike(fromPlayer, new Color(.31f, .31f, .31f), -1 * count);
+		Leaderboard.Instance.AddScore(fromPlayer, new Color(.31f, .31f, .31f), points);
+		Leaderboard.Instance.AddStrike(toPlayer, new Color(.31f, .31f, .31f), count);
+		Leaderboard.Instance.AddScore(toPlayer, new Color(.31f, .31f, .31f), -1 * points);
+
+		IRCConnection.SendMessageFormat("Transferred {0} strike{1} and {2} score from {3} to {4}.", count, count != 1 ? "s" : "", points, fromPlayer, toPlayer);
+	}
+
 	/// <name>Set Reward</name>
 	/// <syntax>reward [points]</syntax>
 	/// <summary>Sets the reward that's given out on a succesful defusual.</summary>
@@ -410,20 +454,46 @@ static class GlobalCommands
 						break;
 					case "points":
 					case "score":
-						module.scoreString = changeTo;
-						module.scoreStringOverride = true;
-						IRCConnection.SendMessage($"Module {moduleName} score string changed to: {module.scoreString}", user, !isWhisper);
+						var fileModule = Array.Find(ModuleData.LastRead, info => info.moduleID == module.moduleID);
+						if (fileModule != null)
+						{
+							fileModule.scoreString = changeTo;
+							module.scoreString = changeTo;
+							module.scoreStringOverride = true;
+							IRCConnection.SendMessage($"Module {moduleName} score string changed to: {module.scoreString}", user, !isWhisper);
+						}
 						break;
 					case "statuslight":
-						module.statusLightPosition = (changeTo.ToLowerInvariant()) switch
+						switch (changeTo.ToLowerInvariant())
 						{
-							"bl" or "bottomleft" or "bottom left" => StatusLightPosition.BottomLeft,
-							"br" or "bottomright" or "bottom right" => StatusLightPosition.BottomRight,
-							"tr" or "topright" or "top right" => StatusLightPosition.TopRight,
-							"tl" or "topleft" or "top left" => StatusLightPosition.TopLeft,
-							"c" or "center" => StatusLightPosition.Center,
-							_ => StatusLightPosition.Default,
-						};
+							case "bl":
+							case "bottomleft":
+							case "bottom left":
+								module.statusLightPosition = StatusLightPosition.BottomLeft;
+								break;
+							case "br":
+							case "bottomright":
+							case "bottom right":
+								module.statusLightPosition = StatusLightPosition.BottomRight;
+								break;
+							case "tr":
+							case "topright":
+							case "top right":
+								module.statusLightPosition = StatusLightPosition.TopRight;
+								break;
+							case "tl":
+							case "topleft":
+							case "top left":
+								module.statusLightPosition = StatusLightPosition.TopLeft;
+								break;
+							case "c":
+							case "center":
+								module.statusLightPosition = StatusLightPosition.Center;
+								break;
+							default:
+								module.statusLightPosition = StatusLightPosition.Default;
+								break;
+						}
 						IRCConnection.SendMessage($"Module {moduleName} status light position changed to: {module.statusLightPosition}", user, !isWhisper);
 						break;
 					case "module pin allowed":
@@ -436,7 +506,7 @@ static class GlobalCommands
 					case "camerapinallowed":
 					case "pinallowed":
 					case "pin allowed":
-						module.CameraPinningAlwaysAllowed = (changeTo.ContainsIgnoreCase("true") || changeTo.ContainsIgnoreCase("yes"));
+						module.CameraPinningAlwaysAllowed = changeTo.ContainsIgnoreCase("true") || changeTo.ContainsIgnoreCase("yes");
 						IRCConnection.SendMessage($"Module {moduleName} Module pinning always allowed changed to: {(modules[0].CameraPinningAlwaysAllowed ? "Yes" : "No")}", user, !isWhisper);
 						break;
 					case "color":
@@ -466,11 +536,11 @@ static class GlobalCommands
 					case "announce module":
 					case "announce":
 					case "announcement":
-						module.announceModule = (changeTo.ContainsIgnoreCase("true") || changeTo.ContainsIgnoreCase("yes"));
+						module.announceModule = changeTo.ContainsIgnoreCase("true") || changeTo.ContainsIgnoreCase("yes");
 						IRCConnection.SendMessage($"Module {moduleName} announce on bomb start changed to: {(modules[0].announceModule ? "Yes" : "No")}", user, !isWhisper);
 						break;
 					case "unclaimable":
-						module.unclaimable = (changeTo.ContainsIgnoreCase("true") || changeTo.ContainsIgnoreCase("yes"));
+						module.unclaimable = changeTo.ContainsIgnoreCase("true") || changeTo.ContainsIgnoreCase("yes");
 						IRCConnection.SendMessage($"Module {moduleName} unclaimable changed to: {(modules[0].unclaimable ? "Yes" : "No")}", user, !isWhisper);
 						break;
 				}
@@ -566,6 +636,12 @@ static class GlobalCommands
 		if (TwitchGame.Instance.VSModePlayers.Values.Contains(user))
 		{
 			IRCConnection.SendMessage($@"{user}, you have already been added to the next VSMode bomb.");
+			return;
+		}
+		if (TwitchGame.Instance.GoodPlayers.Contains(user) || TwitchGame.Instance.EvilPlayers.Contains(user))
+		{
+			string team = TwitchGame.Instance.GoodPlayers.Contains(user) ? "good" : "evil";
+			IRCConnection.SendMessage($@"{user}, you are already on the {team} team.");
 			return;
 		}
 		if (_inGame && !TwitchPlaySettings.data.VSModePlayerLockout)
@@ -998,6 +1074,18 @@ static class GlobalCommands
 		);
 	}
 
+	/// <name>Profile Disabled By</name>
+	/// <syntax>profile disabled by [name]</syntax>
+	/// <summary>Gets the modules disabled by a profile.</summary>
+	[Command(@"profiles? +disabled +by +(.+)")]
+	public static void ProfileDisabledBy([Group(1)] string profileName, string user, bool isWhisper) => ProfileWrapper(profileName, user, isWhisper, (filename, profileString) =>
+	{
+		var moduleIDs = ComponentSolverFactory.GetModuleInformation().Select(modInfo => modInfo.moduleID);
+		var profilePath = Path.Combine(ProfileHelper.ProfileFolder, filename + ".json");
+		var modules = ProfileHelper.GetProfile(profilePath).DisabledList.Where(modID => moduleIDs.Contains(modID));
+		IRCConnection.SendMessage($"Modules disabled by {profileString}: {modules.Join(", ")}");
+	});
+
 	[Command(@"holdables")]
 	public static void Holdables(string user, bool isWhisper) => IRCConnection.SendMessage("The following holdables are present: {0}", user, !isWhisper, TwitchPlaysService.Instance.Holdables.Keys.Select(x => $"!{x}").Join(", "));
 
@@ -1133,7 +1221,7 @@ static class GlobalCommands
 	/// <summary>Quits KTANE.</summary>
 	/// <restriction>SuperUser</restriction>
 	[Command("(?:quit|end)(?:game)?", AccessLevel.SuperUser, AccessLevel.SuperUser)]
-	public static void QuitGame() => SceneManager.Instance.QuitGame();
+	public static void QuitGame() => SceneManager.Instance.Exit();
 
 	/// <name>Check For Updates</name>
 	/// <syntax>checkforupdates</syntax>
@@ -1302,10 +1390,13 @@ static class GlobalCommands
 
 	private static void ShowRank(IList<Leaderboard.LeaderboardEntry> entries, string targetUser, string user, bool isWhisper, bool numeric = false)
 	{
-		entries = entries.Where(entry => entry != null).ToList();
-		if (entries.Count == 0)
+		if (entries != null)
 		{
-			entries = null;
+			entries = entries.Where(entry => entry != null).ToList();
+			if (entries.Count == 0)
+			{
+				entries = null;
+			}
 		}
 
 		if (entries == null && numeric)

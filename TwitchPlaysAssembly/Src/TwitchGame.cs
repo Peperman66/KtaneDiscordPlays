@@ -283,7 +283,7 @@ public class TwitchGame : MonoBehaviour
 			ModuleCameras.StartCoroutine(ModuleCameras.DisableCameras());
 
 		// Award users who maintained modules.
-		var methods = Modules.SelectMany(module => module.ScoreMethods);
+		var methods = Modules.SelectMany(module => module.ScoreMethods).Where(method => method.Players.Count != 0);
 		var awardedPoints = new Dictionary<string, int>();
 		foreach (var player in methods.SelectMany(method => method.Players).Distinct())
 		{
@@ -346,7 +346,7 @@ public class TwitchGame : MonoBehaviour
 	{
 		var callResponse = CheckIfCall(true, false, "", commandToCall, out _);
 		if (callResponse == CallResponse.Success)
-			GameCommands.CallQueuedCommand("", false, true, commandToCall);
+			GameCommands.CallQueuedCommand("", true, commandToCall);
 		else if (callResponse == CallResponse.NotPresent)
 			IRCConnection.SendMessageFormat("Waiting for {0} to be queued.", string.IsNullOrEmpty(commandToCall) ? "the next unnamed queued command" : commandToCall.StartsWith("!") ? "module " + commandToCall : "the command named “" + commandToCall + "”");
 		else
@@ -572,7 +572,7 @@ public class TwitchGame : MonoBehaviour
 		if (TwitchPlaySettings.data.EnableLetterCodes)
 		{
 			// Ignore initial “the” in module names
-			static string SanitizedName(TwitchModule handle) => Regex.Replace(handle.BombComponent.GetModuleDisplayName(), @"^the\s+", "", RegexOptions.IgnoreCase);
+			string SanitizedName(TwitchModule handle) => Regex.Replace(handle.BombComponent.GetModuleDisplayName(), @"^the\s+", "", RegexOptions.IgnoreCase);
 
 			// First, assign codes “naively”
 			var dic1 = new Dictionary<string, List<TwitchModule>>();

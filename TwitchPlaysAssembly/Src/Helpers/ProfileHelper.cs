@@ -16,8 +16,8 @@ static class ProfileHelper
 
 	public static void ReloadActiveConfiguration()
 	{
-		ProfileManagerType ??= ReflectionHelper.FindType("ProfileManager");
-		ReloadActiveConfigurationMethod ??= ProfileManagerType?.GetMethod("ReloadActiveConfiguration", BindingFlags.Public | BindingFlags.Static);
+		ProfileManagerType = ProfileManagerType ?? ReflectionHelper.FindType("ProfileManager");
+		ReloadActiveConfigurationMethod = ReloadActiveConfigurationMethod ?? ProfileManagerType?.GetMethod("ReloadActiveConfiguration", BindingFlags.Public | BindingFlags.Static);
 		ReloadActiveConfigurationMethod?.Invoke(null, null);
 		TwitchGame.RetryAllowed = false;
 	}
@@ -57,7 +57,7 @@ static class ProfileHelper
 
 	public static bool SetState(string profilePath, string module, bool state)
 	{
-		var profile = JsonConvert.DeserializeObject<Profile>(File.ReadAllText(profilePath));
+		var profile = GetProfile(profilePath);
 		var success = false;
 
 		if (state && (!profile.EnabledList.Contains(module) || profile.DisabledList.Contains(module)))
@@ -80,7 +80,9 @@ static class ProfileHelper
 		return success;
 	}
 
-	class Profile
+	public static Profile GetProfile(string profilePath) => JsonConvert.DeserializeObject<Profile>(File.ReadAllText(profilePath));
+
+	public class Profile
 	{
 #pragma warning disable CS0649
 		public HashSet<string> DisabledList;

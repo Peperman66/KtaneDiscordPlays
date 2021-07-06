@@ -61,6 +61,7 @@ public class TwitchPlaysService : MonoBehaviour
 	{
 		_data = GetComponent<TwitchPlaysServiceData>();
 		chatSimulator = gameObject.Traverse("UI", "ChatSimulator");
+		messageTemplate = chatSimulator.Traverse("ChatHistory", "ChatMessage");
 	}
 
 	private void Start()
@@ -98,6 +99,8 @@ public class TwitchPlaysService : MonoBehaviour
 		IRCConnection.Instance.OnMessageReceived.AddListener(OnMessageReceived);
 
 		twitchGame.ParentService = this;
+
+		TwitchPlaysAPI.Setup();
 
 		GameObject infoObject = new GameObject("TwitchPlays_Info");
 		infoObject.transform.parent = gameObject.transform;
@@ -165,8 +168,9 @@ public class TwitchPlaysService : MonoBehaviour
 	// Allow users to send commands from in game. Toggle the UI by typing "tpdebug".
 	private const string DebugSequence = "tpdebug";
 	private int _debugSequenceIndex;
-	private readonly Queue<string> chatMessages = new Queue<string>(11);
+	private readonly Queue<GameObject> chatMessages = new Queue<GameObject>(11);
 	private GameObject chatSimulator;
+	private GameObject messageTemplate;
 
 	private void SetupChatSimulator()
 	{
@@ -215,12 +219,16 @@ public class TwitchPlaysService : MonoBehaviour
 		if (message.IsWhisper)
 			return;
 
-		chatMessages.Enqueue($"<color={(string.IsNullOrEmpty(message.UserColorCode) ? message.UserColorCode : "white")}>{message.UserNickName}</color>: {message.Text}");
+		var chatHistory = chatSimulator.Traverse("ChatHistory");
+		var chatMessage = Instantiate(messageTemplate, chatHistory.transform, false);
+		chatMessage.GetComponent<Text>().text = $"<color={(!string.IsNullOrEmpty(message.UserColorCode) ? message.UserColorCode : "white")}>{message.UserNickName}</color>: {message.Text.Replace("<", "<<i></i>")}";
+		chatMessage.transform.SetSiblingIndex(chatMessages.Count);
+		chatMessage.SetActive(true);
+
+		chatMessages.Enqueue(chatMessage);
 
 		if (chatMessages.Count > 10)
-			chatMessages.Dequeue();
-
-		chatSimulator.Traverse<Text>("ChatHistory").text = chatMessages.Join("\n");
+			Destroy(chatMessages.Dequeue());
 	}
 
 	private void OnStateChange(KMGameInfo.State state)
@@ -357,6 +365,13 @@ public class TwitchPlaysService : MonoBehaviour
 			var prefix = m.Groups[1].Value.Trim();
 			var restCommand = m.Groups[2].Value.Trim();
 
+			// It's possible to be in the gameplay state but not have the bombs yet, we'll wait for them so that the user's command doesn't get dropped.
+			if (CurrentState == KMGameInfo.State.Gameplay && TwitchGame.Instance.Bombs.Count == 0)
+			{
+				StartCoroutine(WaitForBombs(() => OnMessageReceived(msg)));
+				return;
+			}
+
 			// Commands for bombs by “!bomb X” referring to the current bomb
 			if (CurrentState == KMGameInfo.State.Gameplay && prefix.EqualsIgnoreCase("bomb"))
 				InvokeCommand(msg, restCommand, TwitchGame.Instance.Bombs[TwitchGame.Instance._currentBomb == -1 ? 0 : TwitchGame.Instance._currentBomb], typeof(BombCommands));
@@ -482,6 +497,18 @@ public class TwitchPlaysService : MonoBehaviour
 				IRCConnection.SendMessage($"Module {mdl.Code} is currently hidden and cannot be interacted with.");
 				return true;
 			}
+		}
+
+		// Check if commands are allowed to be sent to a holdable as they could be disabled in the settings.
+		if (extraObject is TwitchHoldable holdable && !UserAccess.HasAccess(msg.UserNickName, AccessLevel.SuperUser, true) &&
+			(
+				(!TwitchPlaySettings.data.EnableMissionBinder && holdable.CommandType == typeof(MissionBinderCommands)) ||
+				(!TwitchPlaySettings.data.EnableFreeplayBriefcase && holdable.CommandType == typeof(FreeplayCommands))
+			)
+		)
+		{
+			IRCConnection.SendMessage("That holdable is currently disabled and you cannot be interact with it.");
+			return true;
 		}
 
 		Leaderboard.Instance.GetRank(msg.UserNickName, out Leaderboard.LeaderboardEntry entry);
@@ -681,11 +708,21 @@ public class TwitchPlaysService : MonoBehaviour
 		}
 	}
 
+	private IEnumerator WaitForBombs(Action then)
+	{
+		yield return new WaitUntil(() => TwitchGame.Instance.Bombs.Count != 0);
+
+		then();
+	}
+
 	public void UpdateUiHue()
 	{
 		var darkBand = Color.HSVToRGB(UiHue, .6f, .62f);
 		BombHeader.GetComponent<Image>().color = darkBand;
-		TwitchGame.ModuleCameras?.SetNotes();
+		var moduleCameras = TwitchGame.ModuleCameras;
+		if (moduleCameras != null)
+			moduleCameras.SetNotes();
+
 		foreach (var bomb in TwitchGame.Instance?.Bombs)
 			bomb.EdgeworkID.color = darkBand;
 	}

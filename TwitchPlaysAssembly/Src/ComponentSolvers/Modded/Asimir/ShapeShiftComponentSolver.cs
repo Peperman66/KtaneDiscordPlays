@@ -18,14 +18,24 @@ public class ShapeShiftComponentSolver : ComponentSolver
 
 	private int? ToShapeIndex(string shape)
 	{
-		return shape switch
+		switch (shape)
 		{
-			"flat" or "rectangle" => 0,
-			"round" or "pill" or "circle" => 1,
-			"point" or "triangle" => 2,
-			"ticket" or "cut" => 3,
-			_ => null,
-		};
+			case "flat":
+			case "rectangle":
+				return 0;
+			case "round":
+			case "pill":
+			case "circle":
+				return 1;
+			case "point":
+			case "triangle":
+				return 2;
+			case "ticket":
+			case "cut":
+				return 3;
+			default:
+				return null;
+		}
 	}
 
 	private IEnumerator GetDisplay(object component)
@@ -61,7 +71,6 @@ public class ShapeShiftComponentSolver : ComponentSolver
 		switch (commands.Length)
 		{
 			case 3 when commands[0].Equals("submit"):
-			{
 				int? shapeL = ToShapeIndex(commands[1]);
 				int? shapeR = ToShapeIndex(commands[2]);
 
@@ -74,7 +83,6 @@ public class ShapeShiftComponentSolver : ComponentSolver
 				}
 
 				break;
-			}
 			case 1 when commands[0].Equals("reset"):
 				yield return null;
 				yield return SetDisplay(_initialL, _initialR);

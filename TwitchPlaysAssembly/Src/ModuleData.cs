@@ -54,7 +54,7 @@ public class ModuleInformation
 	public static List<ScoreMethod> ConvertScoreString(string scoreString, TwitchModule module)
 	{
 		// UN and T is for unchanged and temporary score which are read normally.
-		scoreString = Regex.Replace(scoreString, @"(?:UN )?(\d+)T?", "$1");
+		scoreString = Regex.Replace(scoreString, @"(UN|(?<=\d)T)", "");
 
 		var methods = new List<ScoreMethod>();
 		foreach (var factor in scoreString.SplitFull("+"))
@@ -87,15 +87,23 @@ public class ModuleInformation
 					methods.Add(new BaseScore(number));
 					break;
 
-				// S is for special modules which we parse out the multiplier and put it into a dictionary and use later.
-				case 2 when split[0] == "S":
-					// Multiply the score by two because the default DynamicScorePercentage is 0.5.
-					methods.Add(new PerModule(number, module));
+				case 2 when split[0] == "T":
+					methods.Add(new ClaimTime(number, module));
+					break;
+
+				// D is for needy deactivations.
+				case 2 when split[0] == "D":
+					methods.Add(new Deactivations(number, module));
 					break;
 
 				// PPA is for point per action modules which can be parsed in some cases.
 				case 2 when split[0] == "PPA":
 					methods.Add(new PerAction(number));
+					break;
+
+				// S is for special modules which we parse out the multiplier and put it into a dictionary and use later.
+				case 2 when split[0] == "S":
+					methods.Add(new PerModule(number, module));
 					break;
 
 				default:
@@ -141,7 +149,7 @@ public enum StatusLightPosition
 public static class ModuleData
 {
 	public static bool DataHasChanged = true;
-	private static FileModuleInformation[] lastRead = new FileModuleInformation[0]; // Used to prevent overriding settings that are only controlled by the file.
+	public static FileModuleInformation[] LastRead = new FileModuleInformation[0]; // Used to prevent overriding settings that are only controlled by the file.
 	private readonly static FieldInfo[] infoFields = typeof(ModuleInformation).GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
 	private readonly static FieldInfo[] fileInfoFields = typeof(FileModuleInformation).GetFields();
 	public static void WriteDataToFile()
@@ -158,7 +166,7 @@ public static class ModuleData
 				.ThenBy(info => info.moduleID)
 				.Select(info =>
 				{
-					var fileInfo = Array.Find(lastRead, file => file.moduleID == info.moduleID);
+					var fileInfo = Array.Find(LastRead, file => file.moduleID == info.moduleID);
 					var dictionary = new Dictionary<string, object>();
 					foreach (var field in infoFields)
 					{
@@ -166,8 +174,8 @@ public static class ModuleData
 							continue;
 
 						var value = field.GetValue(info);
-						if (field.Name == "scoreString" && fileInfo != null)
-							value = fileInfo.scoreString;
+						if (field.Name == "scoreString")
+							value = fileInfo?.scoreString;
 
 						dictionary[field.Name] = value;
 					}
@@ -201,7 +209,7 @@ public static class ModuleData
 		{
 			DebugHelper.Log($"Loading Module information data from file: {path}");
 			modInfo = SettingsConverter.Deserialize<FileModuleInformation[]>(File.ReadAllText(path));
-			lastRead = modInfo;
+			LastRead = modInfo;
 		}
 		catch (FileNotFoundException)
 		{
@@ -225,7 +233,8 @@ public static class ModuleData
 			var info = new ModuleInformation();
 			foreach (FieldInfo fileFieldInfo in fileInfoFields)
 			{
-				if (fileFieldInfo.DeclaringType == typeof(ModuleInformation)) {
+				if (fileFieldInfo.DeclaringType == typeof(ModuleInformation))
+				{
 					if (fileInfoFields.Any(field => field.DeclaringType == typeof(FileModuleInformation) && field.Name == fileFieldInfo.Name))
 						continue;
 

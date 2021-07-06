@@ -33,7 +33,7 @@ public static class CheckSupport
 			alertProgressBar = alert.transform.Find("ProgressBar");
 
 			var json = JsonConvert.DeserializeObject<WebsiteJSON>(request.downloadHandler.text);
-			yield return TestComponents(GetUntestedComponents(json), GetNameMap(json));
+			yield return TestComponents(json);
 
 			Object.Destroy(alert);
 		}
@@ -47,8 +47,11 @@ public static class CheckSupport
 		gameObjects.Clear();
 	}
 
-	static IEnumerator TestComponents(IEnumerable<BombComponent> untestedComponents, Dictionary<string, string> nameMap)
+	static IEnumerator TestComponents(WebsiteJSON json)
 	{
+		IEnumerable<BombComponent> untestedComponents = GetUntestedComponents(json);
+		Dictionary<string, string> nameMap = GetNameMap(json);
+
 		GameObject fakeModule = new GameObject();
 		gameObjects.Add(fakeModule);
 		TwitchModule module = fakeModule.AddComponent<TwitchModule>();
@@ -100,7 +103,7 @@ public static class CheckSupport
 		var disabledSheet = new GoogleSheet("https://spreadsheets.google.com/feeds/list/1G6hZW0RibjW7n72AkXZgDTHZ-LKj0usRkbAwxSPhcqA/3/public/values?alt=json", "modulename");
 		yield return disabledSheet;
 
-		if (disabledSheet.Success)
+		if (disabledSheet.Success && TwitchPlaySettings.data.AllowSheetDisabledModules)
 		{
 			foreach (var row in disabledSheet.GetRows())
 			{
@@ -112,6 +115,15 @@ public static class CheckSupport
 
 				unsupportedModules.Add(moduleID);
 			}
+		}
+
+		// Always disable modules that are marked as "Incompatible"
+		foreach (var moduleInfo in json.KtaneModules)
+		{
+			if (moduleInfo.Compatibility != "Incompatible")
+				continue;
+
+			unsupportedModules.Add(moduleInfo.ModuleID);
 		}
 
 		// Using the list of unsupported module IDs stored in unsupportedModules, make a Mod Selector profile.
@@ -152,7 +164,7 @@ public static class CheckSupport
 		int progress = 0;
 
 		// Get local mods that need to be tested
-		if (typeof(ModManager).GetField("loadedMods", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(ModManager.Instance) is not Dictionary<string, Mod> loadedMods)
+		if (!(typeof(ModManager).GetField("loadedMods", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(ModManager.Instance) is Dictionary<string, Mod> loadedMods))
 			yield break;
 
 		var validLocalMods = loadedMods.Values
@@ -172,7 +184,7 @@ public static class CheckSupport
 		var modWorkshopPath = Path.GetFullPath(new[] { SteamDirectory, "steamapps", "workshop", "content", "341800" }.Aggregate(Path.Combine));
 		var validModules = json.KtaneModules.Where(module =>
 		{
-			if (module.TwitchPlays != null || module.SteamID == null)
+			if (module.TwitchPlays != null || module.SteamID == null || module.Type == "Widget")
 				return false;
 
 			var modPath = Path.Combine(modWorkshopPath, module.SteamID);
@@ -286,6 +298,8 @@ public static class CheckSupport
 		public string SteamID;
 		public string Name;
 		public string ModuleID;
+		public string Type;
+		public string Compatibility;
 		public Dictionary<string, object> TwitchPlays;
 	}
 #pragma warning restore CS0649
@@ -351,7 +365,7 @@ public static class CheckSupport
 
 	static Dictionary<string, string> GetNameMap(WebsiteJSON json)
 	{
-		if (typeof(ModManager).GetField("loadedMods", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(ModManager.Instance) is not Dictionary<string, Mod> loadedMods)
+		if (!(typeof(ModManager).GetField("loadedMods", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(ModManager.Instance) is Dictionary<string, Mod> loadedMods))
 			return null;
 
 		var bombComponents = loadedMods.Values.SelectMany(mod => mod.GetModObjects<BombComponent>());

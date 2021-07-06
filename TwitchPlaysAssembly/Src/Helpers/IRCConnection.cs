@@ -519,8 +519,18 @@ public class IRCConnection : MonoBehaviour
 
 
 
+			float startTime = Time.time;
 			while (_state == IRCConnectionState.Connecting)
+			{
+				// If it takes more than a few seconds for Twitch to authenticate us, something probably went wrong.
+				if (Time.time - startTime >= 3)
+				{
+					AddTextToHoldable("[IRC:Connect] Authentication timed out.");
+					return;
+				}
+
 				Thread.Sleep(25);
+			}
 		}
 		catch (Exception ex)
 		{
@@ -755,8 +765,9 @@ public class IRCConnection : MonoBehaviour
 		}
 	}
 	/*private void InputThreadMethod(NetworkStreamLineReader input)
+	private bool pingTimeoutTest = false; // Keeps track of if we are currently in a ping timeout test.
+	private void InputThreadMethod(NetworkStreamLineReader input)
 	{
-		bool pingTimeoutTest = false; // Keeps track of if we are currently in a ping timeout test.
 		Stopwatch stopwatch = new Stopwatch();
 		try
 		{
@@ -805,7 +816,8 @@ public class IRCConnection : MonoBehaviour
 					continue;
 				}
 
-				if (pingTimeoutTest) {
+				if (pingTimeoutTest)
+				{
 					pingTimeoutTest = false;
 					MainThreadQueue.Enqueue(() => ConnectionAlert.SetActive(false));
 

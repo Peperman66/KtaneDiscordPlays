@@ -216,7 +216,7 @@ static class GameCommands
 			return;
 		}
 
-		static void checkAndWrap()
+		void checkAndWrap()
 		{
 			// We've reached the end, wrap back to the beginning.
 			if (unclaimedModuleIndex >= unclaimedModules.Count)
@@ -298,7 +298,7 @@ static class GameCommands
 			.Select(module => $"{module.HeaderText} ({module.Code}) - {(module.PlayerName == null ? "Unclaimed" : "Claimed by " + module.PlayerName)}")
 			.ToList();
 
-			IRCConnection.SendMessage(unsolved.Any() ? $"Unsolved Modules: {unsolved.Join(", ")}" : "There are no unsolved modules on this bomb that aren't hidden.", user, !isWhisper);
+		IRCConnection.SendMessage(unsolved.Any() ? $"Unsolved Modules: {unsolved.Join(", ")}" : "There are no unsolved modules on this bomb that aren't hidden.", user, !isWhisper);
 	}
 
 	/// <name>Find Claim View</name>
@@ -586,17 +586,18 @@ static class GameCommands
 	/// <syntax>call (name)\ncallnow (name)</syntax>
 	/// <summary>Calls a command from the queue. callnow skips the requirement set by Call Set. If (name) is specified calls a named command instead of the next command in the queue.</summary>
 	[Command(@"call( *now)?( +.+)?")]
-	public static void CallQueuedCommand(string user, bool isWhisper, [Group(1)] bool now, [Group(2)] string name)
+	public static void CallQueuedCommand(string user, [Group(1)] bool now, [Group(2)] string name)
 	{
 		name = name?.Trim();
-		name ??= "";
+		if (name == null)
+			name = "";
 		var response = TwitchGame.Instance.CheckIfCall(false, now, user, name, out bool callChanged);
 		if (response != TwitchGame.CallResponse.Success)
 		{
 			TwitchGame.Instance.SendCallResponse(user, name, response, callChanged);
 			return;
 		}
-		if (callChanged) IRCConnection.SendMessage($"@{user}, your call has been changed to {name}.", user, !isWhisper);
+		if (callChanged) IRCConnection.SendMessageFormat("@{0}, your call has been changed to {1}.", user, string.IsNullOrEmpty(name) ? "the next queued command" : name);
 		TwitchGame.Instance.CommandQueue.Remove(TwitchGame.Instance.callSend);
 		TwitchGame.ModuleCameras?.SetNotes();
 		IRCConnection.SendMessageFormat("{0} {1}: {2}", TwitchGame.Instance.callWaiting && string.IsNullOrEmpty(user)
@@ -740,7 +741,7 @@ static class GameCommands
 
 		var modules = TwitchGame.Instance.Modules
 			.Where(x => GameRoom.Instance.IsCurrentBomb(x.BombID))
-			.OrderByDescending(module => module.Solver.ModInfo.moduleID.EqualsAny("cookieJars", "organizationModule", "encryptionBingo", "forgetMeLater", "encryptedHangman"));
+			.OrderByDescending(module => module.Solver.ModInfo.moduleID.EqualsAny("cookieJars", "organizationModule", "encryptionBingo", "forgetMeLater", "encryptedHangman", "SecurityCouncil"));
 		foreach (var module in modules)
 			if (!module.Solved)
 				module.SolveSilently();

@@ -10,6 +10,9 @@ namespace TwitchPlays.ScoreMethods
 
 		public ClaimTime(float points, TwitchModule module) : base(points)
 		{
+			if (module == null)
+				return;
+
 			this.module = module;
 
 			module.StartCoroutine(TrackModule());
@@ -19,26 +22,24 @@ namespace TwitchPlays.ScoreMethods
 
 		private IEnumerator TrackModule()
 		{
-			var lastTime = Time.time;
 			while (!module.Solved)
 			{
-				if (module.Claimed && (needyComponent == null || needyComponent.State != NeedyComponent.NeedyStateEnum.Running))
+				if (module.Claimed && (needyComponent == null || needyComponent.State == NeedyComponent.NeedyStateEnum.Running))
 				{
 					var player = module.PlayerName;
 					if (!Scores.ContainsKey(player))
 						Scores[player] = 0;
 
-					Scores[player] += (Time.time - lastTime) * Points;
+					Scores[player] += Time.deltaTime * Points;
 				}
 
-				lastTime = Time.time;
 				yield return null;
 			}
 		}
 
 		public override float CalculateScore(string user)
 		{
-			if (!Scores.TryGetValue(user, out float score))
+			if (user == null || !Scores.TryGetValue(user, out float score))
 				score = 0;
 			else
 				Scores.Remove(user);

@@ -103,7 +103,7 @@ public class Leaderboard
 				_activityTimer?.Dispose();
 				_activityTimer = null;
 				if (!value) return;
-				_activityTimer = new Timer(1.8e+6) {AutoReset = false};
+				_activityTimer = new Timer(1.8e+6) { AutoReset = false };
 				_activityTimer.Elapsed += delegate { Active = false; };
 				_activityTimer.Enabled = true;
 			}
@@ -293,6 +293,9 @@ public class Leaderboard
 
 	public int GetRank(string userName, out LeaderboardEntry entry)
 	{
+		if (userName.StartsWith("@"))
+			userName = userName.Substring(1);
+
 		if (!GetEntry(userName, out entry))
 		{
 			return _entryList.Count + 1;
@@ -326,6 +329,9 @@ public class Leaderboard
 
 	public int GetSoloRank(string userName, out LeaderboardEntry entry)
 	{
+		if (userName.StartsWith("@"))
+			userName = userName.Substring(1);
+
 		entry = _entryListSolo.Find(x => string.Equals(x.UserName, userName, StringComparison.InvariantCultureIgnoreCase));
 		return entry != null ? _entryListSolo.IndexOf(entry) : 0;
 	}
@@ -465,9 +471,11 @@ public class Leaderboard
 		{
 			DebugHelper.Log($"Loading leaderboard data from file: {path}");
 			XmlSerializer xml = new XmlSerializer(_entryList.GetType());
-			TextReader reader = new StreamReader(path);
-			List<LeaderboardEntry> entries = (List<LeaderboardEntry>) xml.Deserialize(reader);
-			AddEntries(entries);
+			using (TextReader reader = new StreamReader(path))
+			{
+				List<LeaderboardEntry> entries = (List<LeaderboardEntry>) xml.Deserialize(reader);
+				AddEntries(entries);
+			}
 			ResetSortFlag();
 
 			path = Path.Combine(Application.persistentDataPath, statsSavePath);
@@ -516,8 +524,10 @@ public class Leaderboard
 
 			DebugHelper.Log($"Saving leaderboard data to file: {path}");
 			XmlSerializer xml = new XmlSerializer(_entryList.GetType());
-			TextWriter writer = new StreamWriter(path);
-			xml.Serialize(writer, _entryList);
+			using (TextWriter writer = new StreamWriter(path))
+			{
+				xml.Serialize(writer, _entryList);
+			}
 
 			path = Path.Combine(Application.persistentDataPath, statsSavePath);
 			DebugHelper.Log($"Saving stats data to file: {path}");
@@ -579,5 +589,5 @@ public class Leaderboard
 	public static string usersSavePath = "TwitchPlaysUsers.xml";
 	public static string statsSavePath = "TwitchPlaysStats.json";
 
-	public static Leaderboard Instance => _instance ??= new Leaderboard();
+	public static Leaderboard Instance => _instance ?? (_instance = new Leaderboard());
 }

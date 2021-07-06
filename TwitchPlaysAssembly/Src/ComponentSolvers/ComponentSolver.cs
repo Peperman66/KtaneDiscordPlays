@@ -498,6 +498,36 @@ public abstract class ComponentSolver
 	#endregion
 
 	#region Protected Helper Methods
+	static string EscapeFormatting(string text)
+	{
+		int index = -1;
+		int count = 0;
+		for (int i = 0; i < text.Length; i++)
+		{
+			if (text[i] == '{')
+			{
+				count++;
+
+				if (count == 1)
+					index = i;
+			}
+			else if (text[i] == '}')
+			{
+				count--;
+
+				if (count == -1)
+					index = i;
+			}
+		}
+
+		if (index != -1 && count % 2 == 1)
+		{
+			text = text.Substring(0, index) + (count > 0 ? "{" : "}") + text.Substring(index);
+		}
+
+		return text;
+	}
+
 	protected enum SendToTwitchChatResponse
 	{
 		InstantResponse,
@@ -507,18 +537,28 @@ public abstract class ComponentSolver
 
 	protected SendToTwitchChatResponse SendToTwitchChat(string message, string userNickName)
 	{
+		bool skipFormatting = false;
+		if (message.RegexMatch(out Match match2, @"^(\w+)(?:!f) (.+)$"))
+		{
+			skipFormatting = true;
+			message = match2.Groups[1].Value + " " + match2.Groups[2].Value;
+		}
+
+		if (!skipFormatting)
+			message = EscapeFormatting(message);
+
 		// Within the messages, allow variables:
 		// {0} = user’s nickname
 		// {1} = Code (module number)
 		if (message.RegexMatch(out Match match, @"^senddelayedmessage ([0-9]+(?:\.[0-9]+)?) (\S(?:\S|\s)*)$") && float.TryParse(match.Groups[1].Value, out float messageDelayTime))
 		{
-			Module.StartCoroutine(SendDelayedMessage(messageDelayTime, string.Format(match.Groups[2].Value, userNickName, Module.Code)));
+			Module.StartCoroutine(SendDelayedMessage(messageDelayTime, skipFormatting ? match.Groups[2].Value : string.Format(match.Groups[2].Value, userNickName, Module.Code)));
 			return SendToTwitchChatResponse.InstantResponse;
 		}
 
 		if (!message.RegexMatch(out match, @"^(sendtochat|sendtochaterror|strikemessage|antitroll) +(\S(?:\S|\s)*)$")) return SendToTwitchChatResponse.NotHandled;
 
-		string chatMsg = string.Format(match.Groups[2].Value, userNickName, Module.Code);
+		string chatMsg = skipFormatting ? match.Groups[2].Value : string.Format(match.Groups[2].Value, userNickName, Module.Code);
 
 		switch (match.Groups[1].Value)
 		{
@@ -565,7 +605,7 @@ public abstract class ComponentSolver
 			var invalidCommand = Array.Find(commandRoutines, routine => !routine.MoveNext());
 			if (invalidCommand != null)
 			{
-				yield return "sendtochaterror The command \"" + chainedCommands[Array.IndexOf(commandRoutines, invalidCommand)] + "\" is invalid.";
+				yield return "sendtochaterror!f The command \"" + chainedCommands[Array.IndexOf(commandRoutines, invalidCommand)] + "\" is invalid.";
 				yield break;
 			}
 
@@ -936,40 +976,18 @@ public abstract class ComponentSolver
 			TwitchPlaySettings.AddRewardBonus(componentValue);
 		else
 		{
-			int HPDamage = 0;
-			bool solve = false;
-			OtherModes.Team? teamDamaged = null;
+			string headerText = UnsupportedModule ? ModInfo.moduleDisplayName : Module.BombComponent.GetModuleDisplayName();
+			CalculateVSHP(userNickName, componentValue, out OtherModes.Team? teamDamaged, out int HPDamage);
 			if (OtherModes.VSModeOn)
 			{
-				HPDamage = componentValue * 5;
-				Leaderboard.Instance.GetRank(userNickName, out Leaderboard.LeaderboardEntry entry);
-				teamDamaged = entry.Team == OtherModes.Team.Good ? OtherModes.Team.Evil : OtherModes.Team.Good; //if entry is null here something went very wrong
-				if (UnsupportedModule)
-					HPDamage = 0;
-
-				switch (teamDamaged)
-				{
-					case OtherModes.Team.Evil:
-						if (OtherModes.GetEvilHealth() <= 1)
-							solve = true;
-
-						if (OtherModes.GetEvilHealth() <= HPDamage && !solve)
-							HPDamage = OtherModes.GetEvilHealth() - 1;
-						break;
-					case OtherModes.Team.Good:
-						if (OtherModes.GetGoodHealth() <= 1)
-							solve = true;
-
-						if (OtherModes.GetGoodHealth() <= HPDamage && !solve)
-							HPDamage = OtherModes.GetGoodHealth() - 1;
-						break;
-				}
+				if (!UnsupportedModule)
+					messageParts.Add(string.Format(TwitchPlaySettings.data.AwardVsSolve, Code, userNickName,
+						componentValue, headerText, HPDamage,
+						teamDamaged == OtherModes.Team.Evil ? "the evil team" : "the good team"));
+				else
+					messageParts.Add(string.Format(TwitchPlaySettings.data.AwardSolve, Code, userNickName,
+						componentValue, headerText));
 			}
-			string headerText = UnsupportedModule ? ModInfo.moduleDisplayName : Module.BombComponent.GetModuleDisplayName();
-			if (OtherModes.VSModeOn && !UnsupportedModule)
-				messageParts.Add(string.Format(TwitchPlaySettings.data.AwardVsSolve, Code, userNickName,
-					componentValue, headerText, HPDamage,
-					teamDamaged == OtherModes.Team.Evil ? "the evil team" : "the good team"));
 			else
 				messageParts.Add(string.Format(TwitchPlaySettings.data.AwardSolve, Code, userNickName, componentValue, headerText));
 			string recordMessageTone = $"Module ID: {Code} | Player: {userNickName} | Module Name: {headerText} | Value: {componentValue}";
@@ -980,44 +998,7 @@ public abstract class ComponentSolver
 				TwitchPlaySettings.AddRewardBonus(componentValue);
 
 			if (OtherModes.VSModeOn)
-			{
-				if (!solve)
-				{
-					switch (teamDamaged)
-					{
-						case OtherModes.Team.Good:
-							OtherModes.SubtractGoodHealth(HPDamage);
-							break;
-						case OtherModes.Team.Evil:
-							OtherModes.SubtractEvilHealth(HPDamage);
-							break;
-					}
-				}
-				else
-				{
-					switch (teamDamaged)
-					{
-						case OtherModes.Team.Good:
-							OtherModes.goodHealth = 0;
-
-							// If Good loses, the bomb blows up.
-							TwitchPlaysService.Instance.CoroutineQueue.CancelFutureSubcoroutines();
-							TwitchGame.Instance.Bombs[0].CauseVersusExplosion();
-
-							// This was here originally to detonate the bomb, but was nonfunctional.
-							//TwitchPlaysService.Instance.CoroutineQueue.AddToQueue(BombCommands.Explode(TwitchGame.Instance.Bombs[0]));
-							break;
-						case OtherModes.Team.Evil:
-							OtherModes.evilHealth = 0;
-
-							// If Evil loses, the bomb is solved.
-							GameCommands.SolveBomb();
-							break;
-					}
-				}
-				if (!solve)
-					TwitchGame.ModuleCameras.UpdateConfidence();
-			}
+				VSUpdate(teamDamaged, HPDamage);
 
 			TwitchPlaySettings.AppendToSolveStrikeLog(recordMessageTone);
 			TwitchPlaySettings.AppendToPlayerLog(userNickName);
@@ -1050,22 +1031,16 @@ public abstract class ComponentSolver
 
 		string headerText = UnsupportedModule ? ModInfo.moduleDisplayName : Module.BombComponent.GetModuleDisplayName();
 		int strikePenalty = -TwitchPlaySettings.data.StrikePenalty * (TwitchPlaySettings.data.EnableRewardMultipleStrikes ? strikeCount : 1);
-		int hpPenalty = 0;
-		OtherModes.Team? team = null;
 		strikePenalty = (strikePenalty * OtherModes.ScoreMultiplier).RoundToInt();
-		if (OtherModes.VSModeOn)
+		bool VSAffect = OtherModes.VSModeOn && !string.IsNullOrEmpty(userNickName);
+		OtherModes.Team? teamDamaged = null;
+		int HPDamage = 0;
+		if (VSAffect)
 		{
-			if (!string.IsNullOrEmpty(userNickName))
-			{
-				Leaderboard.Instance.GetRank(userNickName, out Leaderboard.LeaderboardEntry entry);
-				team = entry?.Team ?? OtherModes.Team.Good;
-				hpPenalty = team == OtherModes.Team.Good
-					? OtherModes.GetGoodHealth() > 30 ? 30 : OtherModes.GetGoodHealth() < 2 ? 0 : OtherModes.GetGoodHealth() - 1
-					: OtherModes.GetEvilHealth() > 30 ? 30 : OtherModes.GetEvilHealth() < 2 ? 0 : OtherModes.GetEvilHealth() - 1;
-				messageParts.Add(string.Format(TwitchPlaySettings.data.AwardVsStrike, Code,
-					strikeCount == 1 ? "a" : strikeCount.ToString(), strikeCount == 1 ? "" : "s", "0", team == OtherModes.Team.Good ? "the good team" : "the evil team", string.IsNullOrEmpty(StrikeMessage) || StrikeMessageConflict ? "" : " caused by " + StrikeMessage, headerText,
-					hpPenalty == 0 ? team == OtherModes.Team.Good ? OtherModes.GetGoodHealth() : OtherModes.GetEvilHealth() : hpPenalty, strikePenalty, userNickName));
-			}
+			CalculateVSHP(userNickName, strikePenalty, out teamDamaged, out HPDamage);
+			messageParts.Add(string.Format(TwitchPlaySettings.data.AwardVsStrike, Code,
+				strikeCount == 1 ? "a" : strikeCount.ToString(), strikeCount == 1 ? "" : "s", "0", teamDamaged == OtherModes.Team.Good ? "the good team" : "the evil team",
+				string.IsNullOrEmpty(StrikeMessage) || StrikeMessageConflict ? "" : " caused by " + StrikeMessage, headerText, HPDamage, strikePenalty, userNickName));
 		}
 		else
 		{
@@ -1091,41 +1066,8 @@ public abstract class ComponentSolver
 		if (currentReward != originalReward)
 			messageParts.Add($"Reward {(currentReward > 0 ? "reduced" : "increased")} to {currentReward} points.");
 
-		if (OtherModes.VSModeOn)
-		{
-			if (userNickName != null)
-			{
-				if (hpPenalty != 0)
-				{
-					if (team == OtherModes.Team.Good)
-						OtherModes.SubtractGoodHealth(hpPenalty);
-					else
-						OtherModes.SubtractEvilHealth(hpPenalty);
-				}
-				else
-				{
-					if (team == OtherModes.Team.Evil)
-					{
-						OtherModes.evilHealth = 0;
-
-						// If Evil loses, the bomb is solved.
-						GameCommands.SolveBomb();
-					}
-					else
-					{
-						// If Good loses, the bomb blows up.
-						TwitchPlaysService.Instance.CoroutineQueue.CancelFutureSubcoroutines();
-						TwitchGame.Instance.Bombs[0].CauseVersusExplosion();
-
-						// This was here originally to detonate the bomb, but was nonfunctional.
-						//TwitchPlaysService.Instance.CoroutineQueue.AddToQueue(BombCommands.Explode(TwitchGame.Instance.Bombs[0]));
-					}
-				}
-
-				if (hpPenalty != 0)
-					TwitchGame.ModuleCameras.UpdateConfidence();
-			}
-		}
+		if (VSAffect)
+			VSUpdate(teamDamaged, HPDamage);
 
 		if (OtherModes.TimeModeOn)
 		{
@@ -1170,12 +1112,24 @@ public abstract class ComponentSolver
 
 	private void AwardPoints(string userNickName, int pointsAwarded)
 	{
+		if (pointsAwarded == 0 || UserAccess.HasAccess(userNickName, AccessLevel.NoPoints) || string.IsNullOrEmpty(userNickName))
+			return;
 		List<string> messageParts = new List<string>();
-		if (!UserAccess.HasAccess(userNickName, AccessLevel.NoPoints))
+		Leaderboard.Instance?.AddScore(userNickName, pointsAwarded);
+		if (!OtherModes.VSModeOn)
+			messageParts.Add(string.Format(TwitchPlaySettings.data.AwardPPA, userNickName,
+				pointsAwarded > 0 ? "awarded" : "deducted", pointsAwarded, Math.Abs(pointsAwarded) > 1 ? "s" : "",
+				Code, ModInfo.moduleDisplayName, pointsAwarded > 0 ? TwitchPlaySettings.data.PosPPAEmote : TwitchPlaySettings.data.NegPPAEmote));
+		else
 		{
-			Leaderboard.Instance?.AddScore(userNickName, pointsAwarded);
-			messageParts.Add(string.Format(TwitchPlaySettings.data.PointsAwardedByModule,
-			userNickName, pointsAwarded, pointsAwarded > 1 ? "s" : "", Code, ModInfo.moduleDisplayName));
+			CalculateVSHP(userNickName, pointsAwarded, out OtherModes.Team? teamDamaged, out int HPDamage);
+
+			messageParts.Add(string.Format(TwitchPlaySettings.data.AwardVSPPA, userNickName,
+				pointsAwarded > 0 ? "awarded" : "deducted", pointsAwarded, Math.Abs(pointsAwarded) > 1 ? "s" : "",
+				Code, ModInfo.moduleDisplayName, HPDamage, teamDamaged == OtherModes.Team.Evil ? "the evil team" : "the good team",
+				pointsAwarded > 0 ? TwitchPlaySettings.data.PosPPAEmote : TwitchPlaySettings.data.NegPPAEmote));
+
+			VSUpdate(teamDamaged, HPDamage);
 		}
 
 		if (TwitchPlaySettings.data.TimeModeTimeForActions && OtherModes.TimeModeOn)
@@ -1188,14 +1142,69 @@ public abstract class ComponentSolver
 		IRCConnection.SendMessage(messageParts.Join());
 	}
 
+	private void CalculateVSHP(string userNickName, int pointsAwarded, out OtherModes.Team? teamDamaged, out int HPDamage)
+	{
+		HPDamage = Mathf.FloorToInt(Math.Abs(pointsAwarded) * TwitchPlaySettings.data.VSHPMultiplier) == 0 ? 1 : Mathf.FloorToInt(Math.Abs(pointsAwarded) * TwitchPlaySettings.data.VSHPMultiplier);
+		Leaderboard.Instance.GetRank(userNickName, out Leaderboard.LeaderboardEntry entry);
+		teamDamaged = pointsAwarded > 0 ? (entry.Team == OtherModes.Team.Good ? OtherModes.Team.Evil : OtherModes.Team.Good) : entry.Team;
+
+		switch (teamDamaged)
+		{
+			case OtherModes.Team.Evil:
+				if (OtherModes.GetEvilHealth() < 2 && pointsAwarded < 0)
+					HPDamage = 0;
+				else if (OtherModes.GetEvilHealth() <= HPDamage && OtherModes.GetEvilHealth() > 1)
+					HPDamage = OtherModes.GetEvilHealth() - 1;
+				break;
+			case OtherModes.Team.Good:
+				if (OtherModes.GetGoodHealth() < 2 && pointsAwarded < 0)
+					HPDamage = 0;
+				if (OtherModes.GetGoodHealth() <= HPDamage && OtherModes.GetGoodHealth() > 1)
+					HPDamage = OtherModes.GetGoodHealth() - 1;
+				break;
+		}
+	}
+
+	private void VSUpdate(OtherModes.Team? teamDamaged, int HPDamage)
+	{
+		if (HPDamage == 0)
+			return;
+		switch (teamDamaged)
+		{
+			case OtherModes.Team.Good:
+				if (OtherModes.GetGoodHealth() - HPDamage < 1)
+				{
+					OtherModes.goodHealth = 0;
+					TwitchPlaysService.Instance.CoroutineQueue.CancelFutureSubcoroutines();
+					TwitchGame.Instance.Bombs[0].CauseVersusExplosion();
+					return;
+				}
+				else
+					OtherModes.SubtractGoodHealth(HPDamage);
+				break;
+			case OtherModes.Team.Evil:
+				if (OtherModes.GetEvilHealth() - HPDamage < 1)
+				{
+					OtherModes.evilHealth = 0;
+					GameCommands.SolveBomb();
+					return;
+				}
+				else
+					OtherModes.SubtractEvilHealth(HPDamage);
+				break;
+		}
+		TwitchGame.ModuleCameras.UpdateConfidence();
+	}
+
 	internal void AwardRewardBonus()
 	{
 		if (Module.RewardBonusMethods == null)
 			return;
 
-		float floatBonus = Module.RewardBonusMethods.Sum(method => {
-			var players = method.Players.ToArray();
-			return players.Length == 0 ? method.CalculateScore(null) : players.Sum(method.CalculateScore);
+		float floatBonus = Module.RewardBonusMethods.Sum(method =>
+		{
+			var players = method.Players;
+			return players.Count == 0 ? method.CalculateScore(null) : players.Sum(method.CalculateScore);
 		});
 
 		int rewardBonus = (floatBonus * OtherModes.ScoreMultiplier).RoundToInt();

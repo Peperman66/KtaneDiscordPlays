@@ -14,13 +14,6 @@ public class MysteryModuleShim : ComponentSolverShim
 		module.StartCoroutine(WaitForMysteryModule());
 	}
 
-	protected override IEnumerator RespondToCommandShimmed(string inputCommand)
-	{
-		IEnumerator command = RespondToCommandUnshimmed(inputCommand);
-		while (command.MoveNext())
-			yield return command.Current;
-	}
-
 	public static bool IsHidden(BombComponent bombComponent) => CoveredModules.TryGetValue(bombComponent, out GameObject cover) && cover != null;
 
 	IEnumerator WaitForMysteryModule()
@@ -33,6 +26,9 @@ public class MysteryModuleShim : ComponentSolverShim
 			mystified = component.GetValue<KMBombModule>("mystifiedModule");
 			yield return null;
 		} while (mystified == null);
+
+		if (component.GetValue<bool>("failsolve"))
+			yield break;
 
 		CoveredModules[mystified.GetComponent<BombComponent>()] = component.GetValue<GameObject>("Cover");
 	}

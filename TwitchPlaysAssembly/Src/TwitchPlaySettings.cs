@@ -41,6 +41,7 @@ public class TwitchPlaySettingsData
 	public int BombLiveMessageDelay = 0;
 	public bool ShowUnrecognizedCommandError = true;
 	public int ModuleClaimLimit = 2;
+	public bool QueuedClaimOverride = true;
 	public int FindClaimLimit = 3;
 	public int FindClaimTerms = 3;
 	public int FindClaimAddTime = 5;
@@ -63,6 +64,7 @@ public class TwitchPlaySettingsData
 	public int StrikePenalty = 6;
 	public int ModuleToStrikeRatio = 12;
 	public bool PacingEventsOnRunBomb = true;
+	public bool AllowSheetDisabledModules = true;
 
 	public bool EnableTimeModeForEveryone = false;
 	public float TimeModeStartingTime = 5;
@@ -93,6 +95,8 @@ public class TwitchPlaySettingsData
 
 	public int MinTimeLeftForClaims = 60;
 	public int MinUnsolvedModulesLeftForClaims = 3;
+
+	public float VSHPMultiplier = 5.0f;
 
 	public string IRCManagerBackgroundImage = Path.Combine(Application.persistentDataPath, "TwitchPlaysIRCManagerBackground.png");
 	public Color IRCManagerTextColor = new Color(1.00f, 0.44f, 0.00f);
@@ -297,6 +301,11 @@ public class TwitchPlaySettingsData
 	public string AwardHoldableStrike = "VoteNay Holdable !{0} got {1} strike{2}! {3} points from {4}{5} VoteNay";
 	public string AwardRewardStrike = "VoteNay Module {0} ({3}) got {1} strike{2}{4}! VoteNay";
 
+	public string AwardPPA = "{6} {0} has been {1} {2} point{3} from Module {4} ({5})! {6}";
+	public string AwardVSPPA = "{8} {0} has been {1} {2} point{3} from Module {4} ({5})! -{6} HP from {7}. {8}";
+	public string PosPPAEmote = "PJSugar";
+	public string NegPPAEmote = "PJSalt";
+
 	public string BombLiveMessage = "The next bomb is now live! Start sending your commands! MrDestructoid";
 	public string MultiBombLiveMessage = "The next set of bombs are now live! Start sending your commands! MrDestructoid";
 
@@ -344,6 +353,7 @@ public class TwitchPlaySettingsData
 	public string TakeInProgress = "@{0}, there is already a takeover attempt for module {1} ({2}) in progress.";
 	public string ModuleIsMine = "{0} confirms he/she is still working on {1} ({2}).";
 	public string TooManyClaimed = "ItsBoshyTime {0}, you may only have {1} claimed modules. The claim has been queued.";
+	public string TooManyClaimedOverride = "ItsBoshyTime {0}, you may only have {1} claimed modules, unless all of your claimed modules are in the command queue. The claim has been queued.";
 	public string NoUnclaimed = "{0}, there are no more unclaimed modules.";
 	public string ModulePlayer = "Module {0} ({2}) was claimed by {1}.";
 	public string AlreadyClaimed = "@{2}, module {0} ({3}) is currently claimed by {1}. If you think they have abandoned it, type !{0} take to free it up.";
@@ -401,7 +411,6 @@ public class TwitchPlaySettingsData
 	public string GiveBonusStrikes = "{0} awarded {1} strikes by {2}";
 
 	public string UnsubmittableAnswerPenalty = "{0}, the answer for module {1} ({2}) couldn't be submitted! You lose {3} point{4}, please only submit correct answers.";
-	public string PointsAwardedByModule = "{0} receives {1} point{2} from module {3} ({4})!";
 
 	public string UnsupportedNeedyWarning = "Found an unsupported Needy Component. Disabling it.";
 
@@ -635,7 +644,7 @@ public static class TwitchPlaySettings
 	public static Dictionary<VoteTypes, int> GetVoteDict()
 	{
 		Dictionary<VoteTypes, int> Dict = new Dictionary<VoteTypes, int>();
-		foreach(VoteTypes Name in Enum.GetValues(typeof(VoteTypes)))
+		foreach (VoteTypes Name in Enum.GetValues(typeof(VoteTypes)))
 		{
 			Dict.Add(Name, 51);
 		}
@@ -718,10 +727,12 @@ public static class TwitchPlaySettings
 		}
 		try
 		{
-			using StreamWriter file = new StreamWriter(Path.Combine(data.TPSharedFolder, data.TPSolveStrikeLog), true);
-			for (int i = 0; i < copies; i++)
+			using (StreamWriter file = new StreamWriter(Path.Combine(data.TPSharedFolder, data.TPSolveStrikeLog), true))
 			{
-				file.WriteLine(RecordMessageTone);
+				for (int i = 0; i < copies; i++)
+				{
+					file.WriteLine(RecordMessageTone);
+				}
 			}
 		}
 		catch (Exception ex)
@@ -1006,28 +1017,39 @@ public static class TwitchPlaySettings
 			case string settingString:
 				return $"Setting {settingField.Name}: {settingString.Replace("\n", "\\n")}";
 			case List<string> settingListString:
-				return split.Length switch
+				switch (split.Length)
 				{
-					2 when int.TryParse(split[1], out int listIndex) && listIndex >= 0 && listIndex < settingListString.Count => $"Settings {settingField.Name}[{listIndex}]: {settingListString[listIndex]}",
-					2 when int.TryParse(split[1], out int listIndex) => $"Settings {settingField.Name}[{listIndex}]: Index out of range",
-					_ => $"Setting {settingField.Name}: Count = {settingListString.Count}",
-				};
+					case 2 when int.TryParse(split[1], out int listIndex) && listIndex >= 0 && listIndex < settingListString.Count:
+						return $"Settings {settingField.Name}[{listIndex}]: {settingListString[listIndex]}";
+					case 2 when int.TryParse(split[1], out int listIndex):
+						return $"Settings {settingField.Name}[{listIndex}]: Index out of range";
+					default:
+						return $"Setting {settingField.Name}: Count = {settingListString.Count}";
+				}
 			case Dictionary<string, string> settingsDictionaryStringString:
-				return split.Length switch
+				switch (split.Length)
 				{
-					2 when !string.IsNullOrEmpty(split[1]) && settingsDictionaryStringString.TryGetValue(split[1], out string settingsDssString) => $"Setting {settingField.Name}[{split[1]}]: {settingsDssString.Replace("\n", "\\n")}",
-					2 when !string.IsNullOrEmpty(split[1]) => $"Setting {settingField.Name}[{split[1]}]: does not exist",
-					2 => $"Setting {settingField.Name}: The second item cannot be empty or null",
-					_ => $"Setting {settingField.Name}: Count = {settingsDictionaryStringString.Count}",
-				};
+					case 2 when !string.IsNullOrEmpty(split[1]) && settingsDictionaryStringString.TryGetValue(split[1], out string settingsDssString):
+						return $"Setting {settingField.Name}[{split[1]}]: {settingsDssString.Replace("\n", "\\n")}";
+					case 2 when !string.IsNullOrEmpty(split[1]):
+						return $"Setting {settingField.Name}[{split[1]}]: does not exist";
+					case 2:
+						return $"Setting {settingField.Name}: The second item cannot be empty or null";
+					default:
+						return $"Setting {settingField.Name}: Count = {settingsDictionaryStringString.Count}";
+				}
 			case Dictionary<string, bool> settingsDictionaryStringBool:
-				return split.Length switch
+				switch (split.Length)
 				{
-					2 when !string.IsNullOrEmpty(split[1]) && settingsDictionaryStringBool.TryGetValue(split[1], out bool settingsDsbBool) => $"Setting {settingField.Name}[{split[1]}]: {settingsDsbBool}",
-					2 when !string.IsNullOrEmpty(split[1]) => $"Setting {settingField.Name}[{split[1]}]: does not exist",
-					2 => $"Setting {settingField.Name}: The second item cannot be empty or null",
-					_ => $"Setting {settingField.Name}: Count = {settingsDictionaryStringBool.Count}",
-				};
+					case 2 when !string.IsNullOrEmpty(split[1]) && settingsDictionaryStringBool.TryGetValue(split[1], out bool settingsDsbBool):
+						return $"Setting {settingField.Name}[{split[1]}]: {settingsDsbBool}";
+					case 2 when !string.IsNullOrEmpty(split[1]):
+						return $"Setting {settingField.Name}[{split[1]}]: does not exist";
+					case 2:
+						return $"Setting {settingField.Name}: The second item cannot be empty or null";
+					default:
+						return $"Setting {settingField.Name}: Count = {settingsDictionaryStringBool.Count}";
+				}
 			case Dictionary<string, ModuleDistributions> settingsDictionaryStringModuleDistributions:
 				switch (split.Length)
 				{

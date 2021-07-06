@@ -34,8 +34,8 @@ public class TheMatrixComponentSolver : ComponentSolver
 			// that you have up to a full second less "safe time" than you supposedly do, so we
 			// need to compensate for this.
 			// We'll flip back when there's about 2/10ths of a second remaining, ideally.
-			float flipBackTime = ((int)timerComponent.TimeRemaining - output) + 1.35f;
-			int flipBackDisplayedTime = (int)timerComponent.TimeRemaining - output;
+			float flipBackTime = ((int) timerComponent.TimeRemaining - output) + 1.35f;
+			int flipBackDisplayedTime = (int) timerComponent.TimeRemaining - output;
 			yield return DoInteractionClick(Switch);
 			yield return $"sendtochat Jacking in until {string.Format("{0:D2}:{1:D2}", flipBackDisplayedTime / 60, flipBackDisplayedTime % 60)}!";
 
@@ -85,6 +85,18 @@ public class TheMatrixComponentSolver : ComponentSolver
 			timeRemaining = (int) timerComponent.TimeRemaining;
 		}
 		yield return DoInteractionClick(correctButton);
+	}
+
+	protected override IEnumerator ForcedSolveIEnumerator()
+	{
+		yield return null;
+		int corTime = _component.GetValue<int>("pressTime");
+		TimerComponent timerComponent = Module.Bomb.Bomb.GetTimer();
+
+		if (!_component.GetValue<bool>("outsideTheMatrix")) yield return DoInteractionClick(Switch);
+		while ((int) timerComponent.TimeRemaining % 10 != corTime) yield return true;
+		if (_component.GetValue<string>("correctPill") == "blue pill") yield return DoInteractionClick(bluePill, 0);
+		else yield return DoInteractionClick(redPill, 0);
 	}
 
 	private readonly KMSelectable Switch;

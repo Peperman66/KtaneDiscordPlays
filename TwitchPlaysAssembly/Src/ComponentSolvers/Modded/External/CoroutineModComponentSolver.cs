@@ -84,8 +84,6 @@ public class CoroutineModComponentSolver : ComponentSolver
 			}
 			catch (Exception ex)
 			{
-				DebugHelper.LogException(ex,
-					$"An exception occurred while trying to invoke {ProcessMethod?.DeclaringType?.FullName}.{ProcessMethod.Name}; the command invocation will not continue.");
 				result = false;
 				loop:
 				switch (ex)
@@ -102,7 +100,7 @@ public class CoroutineModComponentSolver : ComponentSolver
 			if (result)
 				yield return responseCoroutine.Current;
 			else if (exception != null)
-				yield return $"sendtochaterror {exception}";
+				yield return $"sendtochaterror!f {exception}";
 		}
 	}
 }
